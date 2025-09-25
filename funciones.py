@@ -20,11 +20,6 @@ def beam_eb_local_stiffness(E: float, I: float, L: float) -> np.ndarray:
     ], dtype=float)
     return k
 
-# -------------------------------------------------------------
-# Cargas equivalentes consistentes
-# q: N/m POSITIVO HACIA ABAJO
-# P: N POSITIVO HACIA ABAJO
-# -------------------------------------------------------------
 
 def equiv_uniform_load(q: float, L: float) -> np.ndarray:
     Fvi = -q * L/2
