@@ -2,14 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from typing import List, Tuple, Optional
 
-# =============================================================
-# 1) Elemento de viga Euler–Bernoulli (puro flexión) 2 nodos
-#    DOF por nodo: [v, theta]
-# =============================================================
-
 def beam_eb_local_stiffness(E: float, I: float, L: float) -> np.ndarray:
-    if L <= 0:
-        raise ValueError("L debe ser > 0")
     EI = E * I
     L2, L3 = L*L, L*L*L
     k = np.array([
@@ -36,7 +29,7 @@ def hermite_shapes(xi: float, L: float) -> Tuple[float, float, float, float]:
     N4 = L * (-xi**2 + xi**3)
     return N1, N2, N3, N4
 
-# Derivadas para cinemática: v, theta=dw/dx, curvatura=d2w/dx2
+# Derivadas para cinemática
 
 def hermite_shapes_all(xi: float, L: float):
     # N
@@ -46,9 +39,9 @@ def hermite_shapes_all(xi: float, L: float):
     N4 = L * (-xi**2 + xi**3)
     # dN/dx
     dN1dx = (-6*xi + 6*xi**2) / L
-    dN2dx = (1 - 4*xi + 3*xi**2)           # L cancela
+    dN2dx = (1 - 4*xi + 3*xi**2)          
     dN3dx = ( 6*xi - 6*xi**2) / L
-    dN4dx = (-2*xi + 3*xi**2)              # L cancela
+    dN4dx = (-2*xi + 3*xi**2)          
     # d2N/dx2
     d2N1dx2 = (-6 + 12*xi) / L**2
     d2N2dx2 = (-4 + 6*xi) / L
@@ -65,7 +58,7 @@ def equiv_point_load(P: float, a: float, L: float) -> np.ndarray:
     return -P * np.array([N1, N2, N3, N4], dtype=float)
 
 # =============================================================
-# 2) Malla 1D, ensamble, BC y solución
+# Ensamble, BC y solución
 # =============================================================
 
 def make_uniform_beam_mesh(L: float, ne: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -135,7 +128,7 @@ def apply_fixed_ends_bc(K: np.ndarray, F: np.ndarray, N: int):
 # 3) Post-proceso: campos internos y gráficos
 # =============================================================
 
-def element_end_forces_local(E: float, I: float, L_e: float, u_e: np.ndarray,
+def element_end_forces_local_1(E: float, I: float, L_e: float, u_e: np.ndarray,
                              q_uniform: float = 0.0) -> np.ndarray:
     k_loc = beam_eb_local_stiffness(E, I, L_e)
     f_loc = equiv_uniform_load(q_uniform, L_e) if q_uniform else np.zeros(4)
@@ -161,10 +154,10 @@ def sample_element_fields(E: float, I: float, x_i: float, x_j: float,
 
     v_arr = np.array(v_list)
     th_arr = np.array(th_list)
-    M_disp = E*I*np.array(curv_list)  # M por cinemática (lineal por elemento)
+    M_disp = E*I*np.array(curv_list)  
 
     # Estática a partir de fuerzas de extremo
-    s_loc = element_end_forces_local(E, I, L, u_e, q_uniform=q_uniform)
+    s_loc = element_end_forces_local_1(E, I, L, u_e, q_uniform=q_uniform)
     Vi, Mi, Vj, Mj = s_loc
     s = xi * L
     V_stat = Vi - q_uniform * s
@@ -208,29 +201,40 @@ def plot_rotation_beam(x: np.ndarray, elements: np.ndarray, U: np.ndarray, nper:
     plt.grid(True, ls=':'); plt.tight_layout(); plt.show()
 
 
-def plot_moment_beam(x: np.ndarray, elements: np.ndarray, U: np.ndarray,
-                      E: float, I: float, q_uniform: float = 0.0, nper: int = 60):
+def plot_moment_beam(x, elements, U, E, I, q_uniform=0.0, nper=60, modo="equilibrado"):
     X, M = [], []
     for (i, j) in elements:
         u_e = np.array([U[2*i], U[2*i+1], U[2*j], U[2*j+1]])
-        xs, _, _, M_stat, _ = sample_element_fields(E, I, x[i], x[j], u_e, q_uniform=q_uniform, nper=nper)
-        X.extend(xs.tolist()); M.extend(M_stat.tolist())
+        L = x[j] - x[i]
+        # Dos puntos (extremos) bastan porque es lineal:
+        for s in [0.0, 1.0]:
+            _, _, _, M_disp, _ = sample_element_fields(E, I, x[i], x[j], u_e, q_uniform=0.0, nper=2)
+        # Re-evaluemos directamente para evitar confusiones: 
+        # Re-evaluación clara de M_disp en extremos:
+        for s, xp in [(0.0, x[i]), (1.0, x[j])]:
+            N1,N2,N3,N4,_,_,_,_, d2N1, d2N2, d2N3, d2N4 = hermite_shapes_all(s, L)
+            k = d2N1*u_e[0] + d2N2*u_e[1] + d2N3*u_e[2] + d2N4*u_e[3]
+            X.append(xp); M.append(E*I*k)
+
     plt.figure(figsize=(8,3))
     plt.plot(X, M, lw=2)
-    plt.xlabel('x [m]'); plt.ylabel('M [N·m] (signo CCW +)')
-    plt.title('Viga – diagrama de momentos (estática)')
+    plt.xlabel('x [m]'); plt.ylabel('M [N·m]'); plt.title(f'Viga – M ({modo})')
     plt.grid(True, ls=':'); plt.tight_layout(); plt.show()
 
 
-def plot_shear_beam(x: np.ndarray, elements: np.ndarray, U: np.ndarray,
-                     E: float, I: float, q_uniform: float = 0.0, nper: int = 60):
+def plot_shear_beam(x, elements, U, E, I, q_uniform=0.0, nper=60, modo="equilibrado"):
     X, V = [], []
     for (i, j) in elements:
         u_e = np.array([U[2*i], U[2*i+1], U[2*j], U[2*j+1]])
-        xs, _, _, _, V_stat = sample_element_fields(E, I, x[i], x[j], u_e, q_uniform=q_uniform, nper=nper)
-        X.extend(xs.tolist()); V.extend(V_stat.tolist())
+        L = x[j] - x[i]
+        N = [hermite_shapes_all(s, L) for s in (0.0, 1.0)]
+        k1 = N[0][8]*u_e[0] + N[0][9]*u_e[1] + N[0][10]*u_e[2] + N[0][11]*u_e[3]
+        k2 = N[1][8]*u_e[0] + N[1][9]*u_e[1] + N[1][10]*u_e[2] + N[1][11]*u_e[3]
+        M1 = E*I*k1; M2 = E*I*k2
+        V_e = (M2 - M1) / L  # constante por elemento
+        X.extend([x[i], x[j]]); V.extend([V_e, V_e])
+
     plt.figure(figsize=(8,3))
     plt.plot(X, V, lw=2)
-    plt.xlabel('x [m]'); plt.ylabel('V [N] (positivo ↑)')
-    plt.title('Viga - diagrama de corte (estática)')
+    plt.xlabel('x [m]'); plt.ylabel('V [N]'); plt.title(f'Viga – V ({modo})')
     plt.grid(True, ls=':'); plt.tight_layout(); plt.show()
